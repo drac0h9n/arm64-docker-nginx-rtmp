@@ -4,6 +4,7 @@ services:
   nginx-rtmp: # 这里添加了服务名，比如 'nginx-rtmp'
     image: 'nginx-rtmp:hwac0'
     restart: unless-stopped
+    container_name: rtmp
     ports:
       - 1935:1935
       - 8080:80
