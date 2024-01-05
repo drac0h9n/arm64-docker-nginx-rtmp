@@ -1,14 +1,22 @@
 version: '3'
 
 services:
-  nginx-rtmp:
-    build: .
+  nginx-rtmp: # 这里添加了服务名，比如 'nginx-rtmp'
+    image: 'nginx-rtmp:hwac0'
+    restart: unless-stopped
     ports:
       - 1935:1935
       - 8080:80
       - 8443:443
     environment:
-      - HTTP_PORT=80
-      - RTMP_PORT=1935
+      HTTP_PORT: "80"
+      RTMP_PORT: "1935"
     volumes:
-      - ./certs:/opt/certs
+      - ./hls/:/opt/data/hls/
+      - ./nginx.conf:/etc/nginx/nginx.conf.template
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/dma_heap:/dev/dma_heap
+      - /dev/mali0:/dev/mali0
+      - /dev/rga:/dev/rga
+      - /dev/mpp_service:/dev/mpp_service
