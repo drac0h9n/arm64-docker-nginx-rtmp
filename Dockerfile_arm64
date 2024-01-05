@@ -1,5 +1,5 @@
-ARG NGINX_VERSION=1.18.0
-ARG NGINX_RTMP_VERSION=1.2.1
+ARG NGINX_VERSION=1.25.3
+ARG NGINX_RTMP_VERSION=1.2.2
 ARG FFMPEG_VERSION=4.3.1
 
 
@@ -7,6 +7,7 @@ ARG FFMPEG_VERSION=4.3.1
 # Build the NGINX-build image.
 FROM arm64v8/alpine:3.12 as build-nginx
 ADD qemu-aarch64-static /usr/bin
+
 
 ARG NGINX_VERSION
 ARG NGINX_RTMP_VERSION
@@ -59,6 +60,7 @@ RUN cd /tmp/nginx-${NGINX_VERSION} && \
 FROM arm64v8/alpine:3.12 as build-ffmpeg
 ADD qemu-aarch64-static /usr/bin
 
+
 ARG FFMPEG_VERSION
 ARG PREFIX=/usr/local
 ARG MAKEFLAGS="-j4"
@@ -84,21 +86,63 @@ RUN apk add --update \
   wget \
   x264-dev \
   x265-dev \
-  yasm
+  yasm \
+  #添加ffmpeg-rockchip的dependencies
+  meson \
+  cmake \
+  libdrm-dev \
+  git \
+  gcc \
+  bsd-compat-headers
 
 RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/community >> /etc/apk/repositories
-RUN apk add --update fdk-aac-dev --allow-untrusted
+RUN apk add --update fdk-aac-dev
+
+#Build MPP
+RUN cd /tmp/ && \
+  git clone -b jellyfin-mpp --depth=1 https://github.com/nyanmisaka/mpp.git rkmpp 
+RUN cd /tmp/rkmpp/ && mkdir rkmpp_build && cd /tmp/rkmpp/rkmpp_build
+
+RUN cmake \
+    -DCMAKE_INSTALL_PREFIX=${PREFIX} \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_TEST=OFF \
+    /tmp/rkmpp && \
+    make && make install
+
+# Build RGA
+
+RUN cd /tmp/ && \
+  git clone -b jellyfin-rga --depth=1 https://github.com/nyanmisaka/rk-mirrors.git rkrga
+
+RUN cd /tmp/ && \
+  meson setup rkrga rkrga_build \
+    --prefix=${PREFIX} \
+    --libdir=lib \
+    --buildtype=release \
+    --default-library=shared \
+    -Dcpp_args=-fpermissive \
+    -Dlibdrm=false \
+    -Dlibrga_demo=false && \
+meson configure rkrga_build && ninja -C rkrga_build install
 
 # Get FFmpeg source.
 RUN cd /tmp/ && \
-  wget http://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz && \
-  tar zxf ffmpeg-${FFMPEG_VERSION}.tar.gz && rm ffmpeg-${FFMPEG_VERSION}.tar.gz
+  git clone --depth=1 https://github.com/nyanmisaka/ffmpeg-rockchip.git ffmpeg
 
 # Compile ffmpeg.
-RUN cd /tmp/ffmpeg-${FFMPEG_VERSION} && \
+ENV PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig
+
+RUN cd /tmp/ffmpeg && \
   ./configure \
   --prefix=${PREFIX} \
   --enable-version3 \
+  --enable-gpl \
+  --enable-version3 \
+  --enable-libdrm \
+  --enable-rkmpp \
+  --enable-rkrga \
   --enable-gpl \
   --enable-nonfree \
   --enable-small \
@@ -113,14 +157,13 @@ RUN cd /tmp/ffmpeg-${FFMPEG_VERSION} && \
   --enable-libass \
   --enable-libwebp \
   --enable-postproc \
-  --enable-avresample \
   --enable-libfreetype \
   --enable-openssl \
   --disable-debug \
   --disable-doc \
   --disable-ffplay \
-  --extra-libs="-lpthread -lm" && \
-  make && make install && make distclean
+  --extra-libs=-lm && \
+  make && make install
 
 # Cleanup.
 RUN rm -rf /var/cache/* /tmp/*
